@@ -6,10 +6,12 @@ mod windows;
 fn main() -> AppExit {
     App::new()
         .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: None,
-                ..default()
-            }),
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: None,
+                    ..default()
+                })
+                .set(ImagePlugin::default_nearest()),
             windows::plugin,
             ui::plugin,
         ))
