@@ -19,63 +19,30 @@ pub fn plugin(app: &mut App) {
 #[derive(Component)]
 struct NotFinished;
 
-fn spawn_windows(
-    monitors: Query<Entity, With<Monitor>>,
-    ui: Single<Entity, With<crate::ui::Root>>,
-    mut commands: Commands,
-) {
-    let mut spawned_ui = false;
-    for monitor in monitors {
-        let window = commands
-            .spawn((
-                NotFinished,
-                Window {
-                    //mode: WindowMode::BorderlessFullscreen(MonitorSelection::Entity(monitor)),
-                    transparent: true,
-                    ..default()
-                },
-            ))
-            .id();
-
-        let camera = commands
-            .spawn((
-                Camera2d,
-                Msaa::Off,
-                Projection::Orthographic(OrthographicProjection {
-                    scaling_mode: ScalingMode::FixedHorizontal {
-                        viewport_width: 100.,
-                    },
-                    ..OrthographicProjection::default_2d()
-                }),
-                RenderTarget::Window(WindowRef::Entity(window)),
-            ))
-            .id();
-
-        if !spawned_ui {
-            commands.entity(*ui).insert(UiTargetCamera(camera));
-            spawned_ui = true;
-        }
-    }
-}
-
 /// A window that represents an entire monitor.
 #[derive(Component)]
-struct OverlayWindow;
+pub struct OverlayWindow {
+    pub camera: Entity,
+}
+
+/// A camera that represents an entire monitor.
+#[derive(Component)]
+pub struct OverlayCamera;
 
 fn spawn_overlay_window(
     on: On<Add<Monitor>>,
     primary_window: Option<Single<(), With<PrimaryWindow>>>,
     mut commands: Commands,
+    monitor: Query<&Monitor>,
 ) {
+    let monitor = monitor.get(on.entity).else_error()?;
+
     let window = commands
-        .spawn((
-            OverlayWindow,
-            Window {
-                transparent: true,
-                mode: WindowMode::BorderlessFullscreen(MonitorSelection::Entity(on.entity)),
-                ..default()
-            },
-        ))
+        .spawn((Window {
+            transparent: true,
+            mode: WindowMode::BorderlessFullscreen(MonitorSelection::Entity(on.entity)),
+            ..default()
+        },))
         .id();
 
     let camera = commands
@@ -87,8 +54,11 @@ fn spawn_overlay_window(
                 ..OrthographicProjection::default_2d()
             }),
             RenderTarget::Window(WindowRef::Entity(window)),
+            OverlayCamera,
+            Transform::from_translation(monitor.physical_position.as_vec2().extend(0.)),
         ))
         .id();
+    commands.entity(window).insert(OverlayWindow { camera });
 
     commands
         .entity(on.entity)
@@ -102,7 +72,4 @@ fn spawn_overlay_window(
     }
 
     commands.entity(window).insert(PrimaryWindow);
-
-    // Why not a debug button to de-fullscreen all overlays, and when new ones spawned, spawn them
-    // windowed. Also perhaps a button to add a new window, disconnected from any monitor?
 }

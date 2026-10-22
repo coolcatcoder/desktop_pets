@@ -1,18 +1,23 @@
-use std::ops::Mul;
-
 use bevy::{
     camera::RenderTarget,
     color::palettes::css::WHITE,
     prelude::*,
     render::render_resource::TextureFormat,
     ui_widgets::popover::{Popover, PopoverAlign, PopoverPlacement, PopoverSide},
-    window::{Monitor, WindowMode},
+    window::{Monitor, WindowMode, WindowRef, WindowResized},
 };
 use duck_back::Else;
 
+use crate::windows::{OverlayCamera, OverlayWindow};
+
 pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, spawn_ui)
-        .add_systems(Update, monitor_show);
+    app.add_systems(Startup, spawn_ui).add_systems(
+        Update,
+        (
+            spawn_and_despawn_camera_sprites.after(window_resize),
+            window_resize,
+        ),
+    );
 }
 
 #[derive(Component)]
@@ -22,6 +27,10 @@ pub fn spawn_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
     let root = commands
         .spawn((
             Root,
+            Pickable {
+                should_block_lower: false,
+                is_hoverable: false,
+            },
             Node {
                 width: percent(100),
                 height: percent(100),
@@ -78,15 +87,17 @@ pub fn spawn_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             image
                         });
 
-                    commands.spawn((
-                        Camera2d,
-                        Camera {
-                            clear_color: ClearColorConfig::Custom(WHITE.into()),
-                            ..default()
-                        },
-                        Msaa::Off,
-                        RenderTarget::Image(window_image.clone().into()),
-                    ));
+                    let camera = commands
+                        .spawn((
+                            Camera2d,
+                            Camera {
+                                clear_color: ClearColorConfig::Custom(WHITE.into()),
+                                ..default()
+                            },
+                            Msaa::Off,
+                            RenderTarget::Image(window_image.clone().into()),
+                        ))
+                        .id();
 
                     commands.spawn((
                         ChildOf(on.entity),
@@ -104,7 +115,14 @@ pub fn spawn_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                             height: px(300),
                             ..default()
                         },
-                        ImageNode::new(window_image),
+                        //ImageNode::new(window_image),
+                        ViewportNode {
+                            camera: Some(camera),
+                        },
+                        Pickable {
+                            should_block_lower: false,
+                            is_hoverable: true,
+                        },
                     ));
                 },
             );
@@ -142,6 +160,10 @@ pub fn spawn_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                 image: asset_server.load(format!("{name}.png")),
                 ..default()
             },
+            Pickable {
+                should_block_lower: false,
+                is_hoverable: true,
+            },
         ));
 
         with_entity(&mut entity);
@@ -154,52 +176,117 @@ struct MonitorManagement {
     depth: u8,
 }
 
-// This goes on the monitor, or perhaps the window. Once the entity despawns, change it to
-// grey. Should store display name, so we can reconnect?
+/// A sprite that stays in sync with a camera.
 #[derive(Component)]
-struct MonitorShow;
+#[relationship(relationship_target = LinkedSprite)]
+struct LinkedCamera(Entity);
 
-fn monitor_show(
-    monitors: Query<(Entity, &Monitor), Without<MonitorShow>>,
+#[derive(Component)]
+#[relationship_target(relationship = LinkedCamera)]
+struct LinkedSprite(Entity);
+
+const SPRITE_SCALE: f32 = 0.1;
+
+fn window_resize(
+    mut window_resized: MessageReader<WindowResized>,
+    overlay_window: Query<&OverlayWindow>,
+    linked_sprite: Query<&LinkedSprite>,
+    mut sprite: Query<&mut Sprite>,
+) {
+    window_resized.read().for_each(|window_resized| {
+        let overlay_window = overlay_window.get(window_resized.window).else_return()?;
+        let linked_sprite = linked_sprite.get(overlay_window.camera).else_return()?;
+        let mut sprite = sprite.get_mut(linked_sprite.0).else_return()?;
+
+        sprite.custom_size =
+            Some(Vec2::new(window_resized.width, window_resized.height) * SPRITE_SCALE);
+    });
+}
+
+#[derive(EntityEvent)]
+struct UpdatePosition(Entity);
+
+fn update_position(
+    on: On<UpdatePosition>,
+    mut sprite: Query<(&mut Transform, &LinkedCamera)>,
+    transform: Query<&Transform, Without<LinkedCamera>>,
+) {
+    let (mut sprite_transform, linked_camera) = sprite.get_mut(on.0).else_error()?;
+    let transform = transform.get(linked_camera.0).else_error()?;
+    sprite_transform.translation.x = transform.translation.x * SPRITE_SCALE;
+    sprite_transform.translation.y = transform.translation.y * SPRITE_SCALE;
+}
+
+fn drag(
+    on: On<PointerDrag>,
+    linked_camera: Query<&LinkedCamera>,
+    mut transform: Query<&mut Transform>,
+    mut commands: Commands,
+) {
+    let linked_camera = linked_camera.get(on.entity).else_error()?;
+    let mut transform = transform.get_mut(linked_camera.0).else_error()?;
+    let delta = on.delta / SPRITE_SCALE;
+    transform.translation.x += delta.x;
+    transform.translation.y -= delta.y;
+    commands.entity(on.entity).trigger(UpdatePosition);
+    info!("Dragged.");
+}
+
+fn spawn_and_despawn_camera_sprites(
+    camera: Query<(Entity, &RenderTarget), (With<OverlayCamera>, Without<LinkedSprite>)>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     monitor_management: Option<ResMut<MonitorManagement>>,
+    linked_camera: Query<Entity, With<LinkedCamera>>,
+    mut window_resized: MessageWriter<WindowResized>,
+    window: Query<&Window>,
 ) {
-    const SCALE: f32 = 0.03;
-    let mut monitor_management = monitor_management.else_return()?;
+    if let Some(mut monitor_management) = monitor_management {
+        for (camera, render_target) in camera {
+            let RenderTarget::Window(WindowRef::Entity(render_target)) = render_target else {
+                continue;
+            };
+            let render_target = *render_target;
+            let Ok(window) = window.get(render_target) else {
+                continue;
+            };
 
-    for (entity, monitor) in monitors {
-        commands.spawn((
-            Transform::from_translation(
-                monitor
-                    .physical_position
-                    .as_vec2()
-                    .mul(SCALE)
-                    .extend(monitor_management.depth as f32),
-            ),
-            Sprite {
-                image: asset_server.load("monitor.png"),
-                image_mode: SpriteImageMode::Sliced(TextureSlicer {
-                    border: BorderRect {
-                        min_inset: Vec2::splat(4.),
-                        max_inset: Vec2::splat(4.),
+            commands
+                .spawn((
+                    Pickable {
+                        should_block_lower: true,
+                        is_hoverable: true,
                     },
-                    center_scale_mode: SliceScaleMode::Stretch,
-                    sides_scale_mode: SliceScaleMode::Stretch,
-                    ..default()
-                }),
-                custom_size: Some(
-                    monitor.physical_size().as_vec2() * monitor.scale_factor as f32 * SCALE,
-                ),
-                ..default()
-            },
-        ));
-        commands.entity(entity).insert(MonitorShow);
+                    LinkedCamera(camera),
+                    Transform::from_translation(Vec3::Z * monitor_management.depth as f32),
+                    Sprite {
+                        image: asset_server.load("monitor.png"),
+                        image_mode: SpriteImageMode::Sliced(TextureSlicer {
+                            border: BorderRect {
+                                min_inset: Vec2::splat(4.),
+                                max_inset: Vec2::splat(4.),
+                            },
+                            center_scale_mode: SliceScaleMode::Stretch,
+                            sides_scale_mode: SliceScaleMode::Stretch,
+                            ..default()
+                        }),
+                        ..default()
+                    },
+                ))
+                .observe(update_position)
+                .observe(drag)
+                .trigger(UpdatePosition);
 
-        monitor_management.depth += 1;
-        info!(
-            "monitor_show\nphysical_position: {}",
-            monitor.physical_position
-        );
+            monitor_management.depth += 1;
+            window_resized.write(WindowResized {
+                window: render_target,
+                width: window.width(),
+                height: window.height(),
+            });
+        }
+    } else {
+        for linked_camera in linked_camera {
+            commands.entity(linked_camera).despawn();
+        }
     }
 }
