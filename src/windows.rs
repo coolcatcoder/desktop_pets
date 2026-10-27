@@ -10,6 +10,8 @@ use duck_back::Else;
 #[cfg(target_os = "linux")]
 use linux as platform;
 
+use crate::render_layers::CameraRenderLayers;
+
 pub fn plugin(app: &mut App) {
     app.add_plugins(platform::plugin)
         .insert_resource(ClearColor(Srgba::new(0., 0., 0., 0.).into()))
@@ -34,6 +36,7 @@ fn spawn_overlay_window(
     primary_window: Option<Single<(), With<PrimaryWindow>>>,
     mut commands: Commands,
     monitor: Query<&Monitor>,
+    mut camera_render_layers: ResMut<CameraRenderLayers>,
 ) {
     let monitor = monitor.get(on.entity).else_error()?;
 
@@ -56,6 +59,7 @@ fn spawn_overlay_window(
             RenderTarget::Window(WindowRef::Entity(window)),
             OverlayCamera,
             Transform::from_translation(monitor.physical_position.as_vec2().extend(0.)),
+            camera_render_layers.next(),
         ))
         .id();
     commands.entity(window).insert(OverlayWindow { camera });

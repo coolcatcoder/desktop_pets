@@ -1,6 +1,7 @@
 use bevy::{color::palettes::css::WHITE, prelude::*};
 
 mod camera;
+mod render_layers;
 mod ui;
 mod windows;
 
@@ -16,6 +17,7 @@ fn main() -> AppExit {
             windows::plugin,
             ui::plugin,
             camera::plugin,
+            render_layers::plugin,
         ))
         .add_systems(Startup, spawn_control)
         .add_systems(Update, control)
