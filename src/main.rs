@@ -52,6 +52,10 @@ fn control(
         * 500.
         * time_delta;
 
+    if movement == Vec2::ZERO {
+        return;
+    }
+
     for mut transform in transform {
         transform.translation.x += movement.x;
         transform.translation.y += movement.y;

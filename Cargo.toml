@@ -21,7 +21,7 @@ bevy = { version = "0.20", default-features = false, features = [
 	"track_location",
 ] }
 duck_back = "1.4.0"
-x11rb = { version = "0.14.0", features = ["shape"] }
+x11rb = { version = "0.14.0", features = ["shape", "extra-traits"] }
 raw-window-handle = "0.6.2"
 
 [lints.clippy]

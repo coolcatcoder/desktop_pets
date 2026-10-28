@@ -18,9 +18,6 @@ pub fn plugin(app: &mut App) {
         .add_observer(spawn_overlay_window);
 }
 
-#[derive(Component)]
-struct NotFinished;
-
 /// A window that represents an entire monitor.
 #[derive(Component)]
 pub struct OverlayWindow {
@@ -29,7 +26,9 @@ pub struct OverlayWindow {
 
 /// A camera that represents an entire monitor.
 #[derive(Component)]
-pub struct OverlayCamera;
+pub struct OverlayCamera {
+    pub window: Entity,
+}
 
 fn spawn_overlay_window(
     on: On<Add<Monitor>>,
@@ -57,7 +56,7 @@ fn spawn_overlay_window(
                 ..OrthographicProjection::default_2d()
             }),
             RenderTarget::Window(WindowRef::Entity(window)),
-            OverlayCamera,
+            OverlayCamera { window },
             Transform::from_translation(monitor.physical_position.as_vec2().extend(0.)),
             camera_render_layers.next(),
         ))
