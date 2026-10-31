@@ -1,3 +1,5 @@
+#![feature(integer_casts, float_conversions)]
+
 use bevy::{color::palettes::css::WHITE, prelude::*};
 
 mod camera;

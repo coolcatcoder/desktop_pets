@@ -30,6 +30,10 @@ pub struct OverlayCamera {
     pub window: Entity,
 }
 
+// We need more abstraction.
+// X11 wants to create a window per aabb.
+// We'll also probably need to remove ui nodes that use percent and recalculate their px size based
+// on the monitor's size.
 fn spawn_overlay_window(
     on: On<Add<Monitor>>,
     primary_window: Option<Single<(), With<PrimaryWindow>>>,
